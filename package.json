@@ -1,0 +1,22 @@
+{
+  "name": "jgevm",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JGcarv/JGEVM.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/JGcarv/JGEVM/issues"
+  },
+  "homepage": "https://github.com/JGcarv/JGEVM#readme",
+  "dependencies": {
+    "bn.js": "^4.11.8"
+  }
+}

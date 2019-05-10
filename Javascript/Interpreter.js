@@ -173,6 +173,21 @@ const swapOp = op => {
   stack[0] = temp;
 };
 
+const memRead = state => {
+  let offset = state.stack[0];
+  let stack = stack.concat(state.memory.slice(offset, offset + 32));
+  return { ...state, satck };
+};
+
+//Not exactly how it's done, need so refactoring because MSTORE 8 appends 0xff bytes to reach 32
+const memWrite = state => {
+  let op = getOp(state);
+  let len = op == 0x52 ? 32 : 8;
+  let offset = state.stack[0];
+  let value = new BN(stack.pop(), len);
+  stack.slice(0, offset).concat([], stack.slice(offset + len));
+};
+
 const stackOp2 = op => stack => {
   let elem1 = stack.pop();
   let elem2 = stack.pop();

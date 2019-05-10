@@ -105,6 +105,7 @@ const addToStack = (stack, value) => {
 //   step(executeStep(callState))
 //}
 
+//The execution of a single opcode. Returns a new callState
 const executeStep = callState => {
   let opcode = getOp(callState);
   //Maybe a switch statement
@@ -112,21 +113,65 @@ const executeStep = callState => {
     // TODO cleanup this
     let word = callState.code.substr(callState.pc + 2);
     callState.pc = callState.pc + (opcode - 0x5f) * 2;
-    addToStack(callState.stack, new BN(word));
-  } else if (opcode == 0x56 || opcode == 0x57) {
-    let dest = getOP(callState, stack.pop());
-    if (op != 0x5b) {
+    // TODO deal with stack too deep
+    return { ...callState, stack: addToStack(callState.stack, new BN(word)) };
+  }
+
+  if (opcode == 0x56 || opcode == 0x57) {
+    let dest = getOP(callState, callState.stack.pop());
+    if (dest != 0x5b) {
       return "invalid JUMP";
+    } else {
+      //TODO deal with conditional JUMP
+      return { ...callState, pc: dest };
     }
   }
-  //executeOpcode(op,stack);
+  //Memory opcodes
+
+  //Storage Opcodes
+
+  //Stack opcodes
+
+  executeOpcode(opcode, callState.stack);
+
   return { ...callState };
 };
 
 function executeOpcode(op, stack) {
-  codes[op](stack);
+  console.log(codes(op));
+  codes(op)(stack);
   return stack;
 }
+
+const codes = op => {
+  switch (op) {
+    case 0x01:
+      return stackOp2(ADD);
+      break;
+    case 0x02:
+      return stackOp2(MUL);
+      break;
+    default:
+      return "Op not implemented";
+      break;
+  }
+  // 0x02: stackOp2(),
+  // 0x03: stackOp2(SUB),
+  // 0x04: stackOp2(DIV)
+};
+
+const dupOp = op => {
+  //pos = op - 7f
+  //stack.concat(stack[stack.length - pos]);
+};
+
+const swapOp = op => {
+  let pos = op - 0x8f;
+  let head = stack[0];
+  let temp = stack[stack.length - pos];
+  stack[stack.length - pos] = head;
+  stack[0] = temp;
+};
 
 const stackOp2 = op => stack => {
   let elem1 = stack.pop();
@@ -155,12 +200,6 @@ const OR = (a, b) => a | b;
 const XOR = (a, b) => a ^ b;
 const NOT = a => ~a;
 
-const codes = {
-  0x01: stackOp2(ADD),
-  0x02: stackOp2(MUL),
-  0x03: stackOp2(SUB),
-  0x04: stackOp2(DIV)
-};
 let input = { ...callState };
 console.log(executeStep({ ...input, code: exampleInput }));
 

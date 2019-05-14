@@ -132,28 +132,22 @@ const executeStep = callState => {
 
   //Stack opcodes
 
-  executeOpcode(opcode, callState.stack);
-
-  return { ...callState };
+  //executeOpcode(opcode, callState);
+  return codes(op)(callState);
 };
-
-function executeOpcode(op, stack) {
-  console.log(codes(op));
-  codes(op)(stack);
-  return stack;
-}
 
 const codes = op => {
   switch (op) {
     case 0x01:
       return stackOp2(ADD);
-      break;
     case 0x02:
       return stackOp2(MUL);
-      break;
+    case 0x03:
+      return stackOp2(SUB);
+    case 0x33:
+      return stateLens("caller");
     default:
       return "Op not implemented";
-      break;
   }
   // 0x02: stackOp2(),
   // 0x03: stackOp2(SUB),
@@ -188,18 +182,31 @@ const memWrite = state => {
   stack.slice(0, offset).concat([], stack.slice(offset + len));
 };
 
-const stackOp2 = op => stack => {
-  let elem1 = stack.pop();
-  let elem2 = stack.pop();
-  stack.push(op(elem1, elem2));
-  return stack;
+//Read `item` form callState and add it to the stack
+const stateLens = item => callState => {
+  let stack = callState.stack.slice();
+  return { ...callState, stack: [...stack, callState[item]] };
 };
+
+const stackOp2 = op => callState => {
+  let elem1 = callState.stack.pop();
+  let elem2 = callState.stack.pop();
+  let stack = callState.stack.push(op(elem1, elem2));
+  return { ...callState, stack };
+};
+
+// const stackOp2 = op => stack => {
+//   let elem1 = stack.pop();
+//   let elem2 = stack.pop();
+//   stack.push(op(elem1, elem2));
+//   return stack;
+// };
 
 //ARITHMETIC
 const ADD = (a, b) => a + b;
 const MUL = (a, b) => a * b;
 const SUB = (a, b) => a - b;
-const DIV = (a, b) => a / b;
+const DIV = (a, b) => (b == 0 ? 0 : a / b);
 const EXP = (a, b) => a ** b;
 const MOD = (a, b) => a % b;
 
@@ -214,6 +221,9 @@ const AND = (a, b) => a & b;
 const OR = (a, b) => a | b;
 const XOR = (a, b) => a ^ b;
 const NOT = a => ~a;
+
+//CRYPTO
+const SHA3 = () => {};
 
 let input = { ...callState };
 console.log(executeStep({ ...input, code: exampleInput }));

@@ -19,7 +19,8 @@ const callState = {
   memoryUsed: 0,
   previousGas: 0,
   static: false,
-  depth: 0
+  depth: 0,
+  halt: false
 };
 const subState = {
   selfDestruct: false,
@@ -75,10 +76,11 @@ function step(callState) {
   //lookup next opcode
   let opcode = getOp(callState);
   console.log(opcode);
-
   //STOP if
-  if (opcode == "" || opcode == 0) {
+  if (callState.halt || opcode == "" || opcode == 0) {
     //halting mechaninc
+    console.log("Error encountered");
+
     return callState;
   }
   // Check if there's enough gas
@@ -116,15 +118,10 @@ const executeStep = callState => {
       return { ...callState, pc: dest };
     }
   }
-
-  switch (opcode) {
-    case 0x01:
-      return stackOp2(ADD)(callState);
-    default:
-      return "Error";
-  }
+  return codes(opcode)(callState);
 };
 
+// codes:: OP -> Function(callState)
 const codes = op => {
   switch (op) {
     case 0x01:
@@ -133,14 +130,35 @@ const codes = op => {
       return stackOp2(MUL);
     case 0x03:
       return stackOp2(SUB);
+    case 0x04:
+      return stackOp2(DIV);
+    case 0x05:
+      return stackOp2(SDIV);
+    case 0x06:
+      return stackOp2(MOD);
+    case 0x07:
+      return stackOp2(SMOD);
+    case 0x08:
+      return stackOp3(ADDMOD);
+    case 0x09:
+      return stackOp3(MULMOD);
+    case 0x0a:
+      return stackOp2(EXP);
+    case 0x0b:
+      return stackOp2(SIGNEXTEND);
+
     case 0x33:
       return stateLens("caller");
     default:
-      return "Op not implemented";
+      return errorState();
   }
   // 0x02: stackOp2(),
   // 0x03: stackOp2(SUB),
   // 0x04: stackOp2(DIV)
+};
+
+const errorState = () => callState => {
+  return { ...callState, halt: true };
 };
 
 const dupOp = op => {
@@ -177,17 +195,68 @@ const stateLens = item => callState => {
 };
 
 const stackOp2 = op => callState => {
-  const [a, b] = callState.stack.slice(-2);
-  return { ...callState, stack: [op(a, b), ...callState.stack.slice(0, -3)] };
+  const [a, b] = callState.stack.slice(0, 2);
+  return { ...callState, stack: [...callState.stack.slice(2), op(a, b)] };
+};
+
+const stackOp3 = op => callState => {
+  const [a, b, c] = callState.stack.slice(0, 3);
+  return { ...callState, stack: [...callState.stack.slice(3), op(a, b, c)] };
 };
 
 //ARITHMETIC
 const ADD = (a, b) => a.add(b).mod(uint256);
 const MUL = (a, b) => a.mul(b).mod(uint256);
 const SUB = (a, b) => a.sub(b).mod(uint256);
-const DIV = (a, b) => (b.isZero() ? new BN(0) : a.div(b));
-const EXP = (a, b) => a.pow(b).mod(uint256);
+const DIV = (a, b) => (b.isZero() ? new BN(b) : a.div(b));
+
+const SDIV = (a, b) =>
+  b.isZero()
+    ? new BN(b)
+    : a
+        .fromTwos(256)
+        .div(b.fromTwos(256))
+        .toTwos(256);
+
 const MOD = (a, b) => a.mod(b);
+const SMOD = (a, b) => {
+  if (b.isZero()) {
+    r = new BN(b);
+  } else {
+    a = a.fromTwos(256);
+    b = b.fromTwos(256);
+    r = a.abs().mod(b.abs());
+    if (a.isNeg()) {
+      r = r.ineg();
+    }
+    r = r.toTwos(256);
+  }
+  return r;
+};
+
+const ADDMOD = (a, b, c) => a.add(b.mod(c));
+const MULMOD = (a, b, c) => a.mul(b.mod(c));
+
+const EXP = (a, b) => a.pow(b).mod(uint256); //NOTE EXP cost dynamic gas, That's no dealt with yet
+const SIGNEXTEND = (k, val) => {
+  val = val.toArrayLike(Buffer, "be", 32);
+  var extendOnes = false;
+
+  if (k.lten(31)) {
+    k = k.toNumber();
+
+    if (val[31 - k] & 0x80) {
+      extendOnes = true;
+    }
+
+    // 31-k-1 since k-th byte shouldn't be modified
+    for (var i = 30 - k; i >= 0; i--) {
+      val[i] = extendOnes ? 0xff : 0;
+    }
+  }
+
+  return new BN(val);
+};
 
 // COMPARISSON
 const LT = (a, b) => (a < b ? new BN(1) : new BN(0));

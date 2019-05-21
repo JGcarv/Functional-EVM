@@ -58,7 +58,7 @@ const blockInfo = {
 // let d2 = t.toArrayLike(Buffer, "be", 8);
 // console.log(d1.add(d2));
 
-const exampleInput = "016060604001";
+const exampleInput = "6001600201";
 
 const getOp = (call, pc = call.pc) => {
   if (call.code[pc] > call.code.length) {
@@ -80,13 +80,14 @@ function step(callState) {
   if (callState.halt || opcode == "" || opcode == 0) {
     //halting mechaninc
     console.log("Error encountered");
+    console.log(callState.stack);
 
     return callState;
   }
   // Check if there's enough gas
 
   //Execute
-  return executeStep(callState);
+  return step(executeStep(callState));
 }
 
 //The execution of a single opcode. Returns a new callState
@@ -96,11 +97,11 @@ const executeStep = callState => {
 
   if (opcode >= 0x60 && opcode <= 0x7f) {
     // TODO cleanup this
+    console.log(callState.pc);
     let word = callState.code.substr(callState.pc + 2, opcode - 0x5e);
     let pc = callState.pc + (opcode - 0x5e) * 2;
-
-    console.log(pc, word);
-    console.log(word);
+    console.log(pc);
+    console.log(callState.code);
 
     return {
       ...callState,
@@ -124,6 +125,8 @@ const executeStep = callState => {
 // codes:: OP -> Function(callState)
 const codes = op => {
   switch (op) {
+    case 0x00:
+      return errorState();
     case 0x01:
       return stackOp2(ADD);
     case 0x02:
@@ -196,7 +199,11 @@ const stateLens = item => callState => {
 
 const stackOp2 = op => callState => {
   const [a, b] = callState.stack.slice(0, 2);
-  return { ...callState, stack: [...callState.stack.slice(2), op(a, b)] };
+  return {
+    ...callState,
+    stack: [...callState.stack.slice(2), op(a, b)],
+    pc: callState.pc + 2
+  };
 };
 
 const stackOp3 = op => callState => {

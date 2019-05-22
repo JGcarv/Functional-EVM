@@ -1,5 +1,6 @@
 const BN = require("bn.js");
 // const exampleInput = "60606040523415600e57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550603580605b6000396000f3006060604052600080fd00a165627a7a7230582056b"
+//import codes from "./Opcodes.js";
 
 const uint256 = new BN(2).pow(new BN(256));
 
@@ -58,7 +59,7 @@ const blockInfo = {
 // let d2 = t.toArrayLike(Buffer, "be", 8);
 // console.log(d1.add(d2));
 
-const exampleInput = "6001600201";
+const exampleInput = "6001600201600401";
 
 const getOp = (call, pc = call.pc) => {
   if (call.code[pc] > call.code.length) {
@@ -75,13 +76,8 @@ const addToStack = (stack, value) => {
 function step(callState) {
   //lookup next opcode
   let opcode = getOp(callState);
-  console.log(opcode);
   //STOP if
-  if (callState.halt || opcode == "" || opcode == 0) {
-    //halting mechaninc
-    console.log("Error encountered");
-    console.log(callState.stack);
-
+  if (callState.halt || opcode == "" || opcode == 0 || opcode == NaN) {
     return callState;
   }
   // Check if there's enough gas
@@ -97,11 +93,8 @@ const executeStep = callState => {
 
   if (opcode >= 0x60 && opcode <= 0x7f) {
     // TODO cleanup this
-    console.log(callState.pc);
     let word = callState.code.substr(callState.pc + 2, opcode - 0x5e);
     let pc = callState.pc + (opcode - 0x5e) * 2;
-    console.log(pc);
-    console.log(callState.code);
 
     return {
       ...callState,
@@ -122,11 +115,8 @@ const executeStep = callState => {
   return codes(opcode)(callState);
 };
 
-// codes:: OP -> Function(callState)
 const codes = op => {
   switch (op) {
-    case 0x00:
-      return errorState();
     case 0x01:
       return stackOp2(ADD);
     case 0x02:
@@ -149,18 +139,37 @@ const codes = op => {
       return stackOp2(EXP);
     case 0x0b:
       return stackOp2(SIGNEXTEND);
-
+    case 0x10:
+      return stackOp2(LT);
+    case 0x11:
+      return stackOp2(GT);
+    case 0x12:
+      return stackOp2(SLT);
+    case 0x13:
+      return stackOp2(SGT);
+    case 0x14:
+      return stackOp2(EQ);
+    case 0x15:
+      return stackOp1(ISZERO);
+    case 0x16:
+      return stackOp2(AND);
+    case 0x17:
+      return stackOp2(OR);
+    case 0x18:
+      return stackOp2(XOR);
+    case 0x19:
+      return stackOp1(NOT);
+    case 0x1a:
+      return stackOp2(BYTE);
     case 0x33:
       return stateLens("caller");
     default:
       return errorState();
   }
-  // 0x02: stackOp2(),
-  // 0x03: stackOp2(SUB),
-  // 0x04: stackOp2(DIV)
 };
 
 const errorState = () => callState => {
+  console.log("error");
   return { ...callState, halt: true };
 };
 
@@ -194,7 +203,20 @@ const memWrite = state => {
 
 //Read `item` form callState and add it to the stack
 const stateLens = item => callState => {
-  return { ...callState, stack: [...stack, callState[item]] };
+  return {
+    ...callState,
+    stack: [...stack, callState[item]],
+    pc: callState.pc + 2
+  };
+};
+
+const stackOp1 = op => callState => {
+  const a = callState.stack.slice(0, 1);
+  return {
+    ...callState,
+    stack: [...callState.stack.slice(1), op(a)],
+    pc: callState.pc + 2
+  };
 };
 
 const stackOp2 = op => callState => {
@@ -208,7 +230,11 @@ const stackOp2 = op => callState => {
 
 const stackOp3 = op => callState => {
   const [a, b, c] = callState.stack.slice(0, 3);
-  return { ...callState, stack: [...callState.stack.slice(3), op(a, b, c)] };
+  return {
+    ...callState,
+    stack: [...callState.stack.slice(3), op(a, b, c)],
+    pc: callState.pc + 2
+  };
 };
 
 //ARITHMETIC
@@ -266,19 +292,20 @@ const SIGNEXTEND = (k, val) => {
 };
 
 // COMPARISSON
-const LT = (a, b) => (a < b ? new BN(1) : new BN(0));
-const GT = (a, b) => (a > b ? new BN(1) : new BN(0));
-const EQ = (a, b) => (a == b ? new BN(1) : new BN(0));
-const ISZERO = a => (a == 0 ? new BN(1) : new BN(0));
+const LT = (a, b) => new BN(a < b ? 1 : 0);
+const GT = (a, b) => new BN(a > b ? 1 : 0);
+const SLT = (a, b) => new BN(a.fromTwos(256).lt(b.fromTwos(256)) ? 1 : 0);
+const SGT = (a, b) => new BN(a.fromTwos(256).gt(b.fromTwos(256)) ? 1 : 0);
+const EQ = (a, b) => new BN(a == b ? 1 : 0);
+const ISZERO = a => new BN(a == 0 ? 1 : 0);
 
 //BIT
-const AND = (a, b) => a & b;
-const OR = (a, b) => a | b;
-const XOR = (a, b) => a ^ b;
-const NOT = a => ~a;
-
-//CRYPTO
-const SHA3 = () => {};
+const AND = (a, b) => a.and(b);
+const OR = (a, b) => a.or(b);
+const XOR = (a, b) => a.xor(b);
+const NOT = a => a.notn(256);
+const BYTE = (a, b) =>
+  new BN(a.gten(32) ? 0 : b.shrn((31 - a.toNumber()) * 8).andln(0xff));
 
 let input = { ...callState, stack: [new BN(0x01), new BN(0x02)] };
 console.log(step({ ...input, code: exampleInput }));

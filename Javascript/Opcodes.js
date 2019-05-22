@@ -1,121 +1,197 @@
+const codes = op => {
+  switch (op) {
+    case 0x01:
+      return stackOp2(ADD);
+    case 0x02:
+      return stackOp2(MUL);
+    case 0x03:
+      return stackOp2(SUB);
+    case 0x04:
+      return stackOp2(DIV);
+    case 0x05:
+      return stackOp2(SDIV);
+    case 0x06:
+      return stackOp2(MOD);
+    case 0x07:
+      return stackOp2(SMOD);
+    case 0x08:
+      return stackOp3(ADDMOD);
+    case 0x09:
+      return stackOp3(MULMOD);
+    case 0x0a:
+      return stackOp2(EXP);
+    case 0x0b:
+      return stackOp2(SIGNEXTEND);
+    case 0x10:
+      return stackOp2(LT);
+    case 0x11:
+      return stackOp2(GT);
+    case 0x12:
+      return stackOp2(SLT);
+    case 0x13:
+      return stackOp2(SGT);
+    case 0x14:
+      return stackOp2(EQ);
+    case 0x15:
+      return stackOp1(ISZERO);
+    case 0x16:
+      return stackOp2(AND);
+    case 0x17:
+      return stackOp2(OR);
+    case 0x18:
+      return stackOp2(XOR);
+    case 0x19:
+      return stackOp1(NOT);
+    case 0x1a:
+      return stackOp2(BYTE);
+    case 0x33:
+      return stateLens("caller");
+    default:
+      return errorState();
+  }
+};
+
+const errorState = () => callState => {
+  console.log("error");
+  return { ...callState, halt: true };
+};
+
+const dupOp = op => {
+  //pos = op - 7f
+  //stack.concat(stack[stack.length - pos]);
+};
+
+const swapOp = op => {
+  let pos = op - 0x8f;
+  let head = stack[0];
+  let temp = stack[stack.length - pos];
+  stack[stack.length - pos] = head;
+  stack[0] = temp;
+};
+
+const memRead = state => {
+  let offset = state.stack[0];
+  let stack = stack.concat(state.memory.slice(offset, offset + 32));
+  return { ...state, satck };
+};
+
+//Not exactly how it's done, need so refactoring because MSTORE 8 appends 0xff bytes to reach 32
+const memWrite = state => {
+  let op = getOp(state);
+  let len = op == 0x52 ? 32 : 8;
+  let offset = state.stack[0];
+  let value = new BN(stack.pop(), len);
+  stack.slice(0, offset).concat([], stack.slice(offset + len));
+};
+
+//Read `item` form callState and add it to the stack
+const stateLens = item => callState => {
+  return {
+    ...callState,
+    stack: [...stack, callState[item]],
+    pc: callState.pc + 2
+  };
+};
+
+const stackOp1 = op => callState => {
+  const a = callState.stack.slice(0, 1);
+  return {
+    ...callState,
+    stack: [...callState.stack.slice(1), op(a)],
+    pc: callState.pc + 2
+  };
+};
+
+const stackOp2 = op => callState => {
+  const [a, b] = callState.stack.slice(0, 2);
+  return {
+    ...callState,
+    stack: [...callState.stack.slice(2), op(a, b)],
+    pc: callState.pc + 2
+  };
+};
+
+const stackOp3 = op => callState => {
+  const [a, b, c] = callState.stack.slice(0, 3);
+  return {
+    ...callState,
+    stack: [...callState.stack.slice(3), op(a, b, c)],
+    pc: callState.pc + 2
+  };
+};
 
 //ARITHMETIC
-const ADD = (a,b) => (a + b);
-const MUL = (a,b) => (a * b);
-const SUB = (a,b) => (a - b);
-const DIV = (a,b) => (a / b);
-const EXP = (a,b) => a ** b;
-const MOD = (a,b) => a % b;
+const ADD = (a, b) => a.add(b).mod(uint256);
+const MUL = (a, b) => a.mul(b).mod(uint256);
+const SUB = (a, b) => a.sub(b).mod(uint256);
+const DIV = (a, b) => (b.isZero() ? new BN(b) : a.div(b));
+
+const SDIV = (a, b) =>
+  b.isZero()
+    ? new BN(b)
+    : a
+        .fromTwos(256)
+        .div(b.fromTwos(256))
+        .toTwos(256);
+
+const MOD = (a, b) => a.mod(b);
+const SMOD = (a, b) => {
+  if (b.isZero()) {
+    r = new BN(b);
+  } else {
+    a = a.fromTwos(256);
+    b = b.fromTwos(256);
+    r = a.abs().mod(b.abs());
+    if (a.isNeg()) {
+      r = r.ineg();
+    }
+    r = r.toTwos(256);
+  }
+  return r;
+};
+
+const ADDMOD = (a, b, c) => a.add(b.mod(c));
+const MULMOD = (a, b, c) => a.mul(b.mod(c));
+
+const EXP = (a, b) => a.pow(b).mod(uint256); //NOTE EXP cost dynamic gas, That's no dealt with yet
+const SIGNEXTEND = (k, val) => {
+  val = val.toArrayLike(Buffer, "be", 32);
+  var extendOnes = false;
+
+  if (k.lten(31)) {
+    k = k.toNumber();
+
+    if (val[31 - k] & 0x80) {
+      extendOnes = true;
+    }
+
+    // 31-k-1 since k-th byte shouldn't be modified
+    for (var i = 30 - k; i >= 0; i--) {
+      val[i] = extendOnes ? 0xff : 0;
+    }
+  }
+
+  return new BN(val);
+};
 
 // COMPARISSON
-const LT = (a,b) => a < b;
-const GT = (a,b) => a > b;
-const EQ = (a,b) => a == b;
-const ISZERO = (a) => a == 0;
+const LT = (a, b) => new BN(a < b ? 1 : 0);
+const GT = (a, b) => new BN(a > b ? 1 : 0);
+const SLT = (a, b) => new BN(a.fromTwos(256).lt(b.fromTwos(256)) ? 1 : 0);
+const SGT = (a, b) => new BN(a.fromTwos(256).gt(b.fromTwos(256)) ? 1 : 0);
+const EQ = (a, b) => new BN(a == b ? 1 : 0);
+const ISZERO = a => new BN(a == 0 ? 1 : 0);
 
 //BIT
-const AND = (a,b) => a & b;
-const OR = (a,b) => a | b;
-const XOR = (a,b) => a ^ b;
-const NOT = (a) => ~a;
-
+const AND = (a, b) => a.and(b);
+const OR = (a, b) => a.or(b);
+const XOR = (a, b) => a.xor(b);
+const NOT = a => a.notn(256);
+const BYTE = (a, b) =>
+  new BN(a.gten(32) ? 0 : b.shrn((31 - a.toNumber()) * 8).andln(0xff));
 
 /**
-module.exports = {
-  STOP: function (runState) {
-    runState.stopped = true
-  },
-  SDIV: function (runState) {
-    let [a, b] = runState.stack.popN(2)
-    let r
-    if (b.isZero()) {
-      r = new BN(b)
-    } else {
-      a = a.fromTwos(256)
-      b = b.fromTwos(256)
-      r = a.div(b).toTwos(256)
-    }
-    runState.stack.push(r)
-  },
-  SMOD: function (runState) {
-    let [a, b] = runState.stack.popN(2)
-    let r
-    if (b.isZero()) {
-      r = new BN(b)
-    } else {
-      a = a.fromTwos(256)
-      b = b.fromTwos(256)
-      r = a.abs().mod(b.abs())
-      if (a.isNeg()) {
-        r = r.ineg()
-      }
-      r = r.toTwos(256)
-    }
-    runState.stack.push(r)
-  },
-  ADDMOD: function (runState) {
-    const [a, b, c] = runState.stack.popN(3)
-    let r
-    if (c.isZero()) {
-      r = new BN(c)
-    } else {
-      r = a.add(b).mod(c)
-    }
-    runState.stack.push(r)
-  },
-  MULMOD: function (runState) {
-    const [a, b, c] = runState.stack.popN(3)
-    let r
-    if (c.isZero()) {
-      r = new BN(c)
-    } else {
-      r = a.mul(b).mod(c)
-    }
-    runState.stack.push(r)
-  },
-  SIGNEXTEND: function (runState) {
-    let [k, val] = runState.stack.popN(2)
-    val = val.toArrayLike(Buffer, 'be', 32)
-    var extendOnes = false
 
-    if (k.lten(31)) {
-      k = k.toNumber()
-
-      if (val[31 - k] & 0x80) {
-        extendOnes = true
-      }
-
-      // 31-k-1 since k-th byte shouldn't be modified
-      for (var i = 30 - k; i >= 0; i--) {
-        val[i] = extendOnes ? 0xff : 0
-      }
-    }
-
-    runState.stack.push(new BN(val))
-  },
-  // 0x10 range - bit ops
-
-  SLT: function (runState) {
-    const [a, b] = runState.stack.popN(2)
-    const r = new BN(a.fromTwos(256).lt(b.fromTwos(256)) ? 1 : 0)
-    runState.stack.push(r)
-  },
-  SGT: function (runState) {
-    const [a, b] = runState.stack.popN(2)
-    const r = new BN(a.fromTwos(256).gt(b.fromTwos(256)) ? 1 : 0)
-    runState.stack.push(r)
-  },
-
-  BYTE: function (runState) {
-    const [pos, word] = runState.stack.popN(2)
-    if (pos.gten(32)) {
-      runState.stack.push(new BN(0))
-      return
-    }
-
-    const r = new BN(word.shrn((31 - pos.toNumber()) * 8).andln(0xff))
-    runState.stack.push(r)
-  },
   SHL: function (runState) {
     const [a, b] = runState.stack.popN(2)
     if (!runState._common.gteHardfork('constantinople')) {
@@ -171,18 +247,7 @@ module.exports = {
     runState.stack.push(r)
   },
   // 0x20 range - crypto
-  SHA3: function (runState) {
-    const [offset, length] = runState.stack.popN(2)
-    subMemUsage(runState, offset, length)
-    let data = Buffer.alloc(0)
-    if (!length.isZero()) {
-      data = runState.memory.read(offset.toNumber(), length.toNumber())
-    }
-    // copy fee
-    subGas(runState, new BN(runState._common.param('gasPrices', 'sha3Word')).imul(length.divCeil(new BN(32))))
-    const r = new BN(utils.keccak256(data))
-    runState.stack.push(r)
-  },
+,
   // 0x30 range - closure state
   ADDRESS: function (runState) {
     runState.stack.push(new BN(runState.address))
@@ -906,3 +971,5 @@ module.exports = {
   }
 }
 **/
+
+export default codes;

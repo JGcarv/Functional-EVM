@@ -1,57 +1,100 @@
 const BN = require("bn.js");
-// const exampleInput = "60606040523415600e57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550603580605b6000396000f3006060604052600080fd00a165627a7a7230582056b"
 //import codes from "./Opcodes.js";
 
 const uint256 = new BN(2).pow(new BN(256));
 
-const env = {};
-
-const callState = {
-  code: "",
-  bytes: "",
-  id: 0,
-  caller: "",
-  callData: "",
-  callValue: "",
-  stack: [],
-  memory: [],
-  pc: 0,
-  gas: 0,
-  memoryUsed: 0,
-  previousGas: 0,
-  static: false,
-  depth: 0,
-  halt: false
-};
-const subState = {
-  selfDestruct: false,
-  log: "",
-  refund: 0
+//Naive Implementation. It's not very performant
+const globalState = () => {
+  return {
+    callState: callState(),
+    subState: subState(),
+    message: message(),
+    txData: txData(),
+    blockInfo: blockInfo(),
+    accounts: {}
+  };
 };
 
-const txData = {
-  gasprice: 0,
-  origin: ""
+const account = () => {
+  return {
+    address: "",
+    balance: 0,
+    code: "",
+    storage: {},
+    nonce: 0
+  };
 };
 
-const blockInfo = {
-  previousHash: 0,
-  ommersHash: 0,
-  coinbase: 0,
-  stateRoot: 0,
-  transactionsRoot: 0,
-  receiptsRoot: 0,
-  logsBloom: [],
-  difficulty: 0,
-  number: 0,
-  gasLimit: 0,
-  gasUsed: 0,
-  timestamp: 0,
-  extraData: [],
-  mixHash: 0,
-  blockNonce: 0,
-  ommerBlockHeaders: 0,
-  blockhash: ""
+const message = () => {
+  return {
+    msgHash: "",
+    txNonce: 0,
+    txGasPrice: 0,
+    txGasLimit: 0,
+    to: account,
+    value: 0,
+    sigV: 0,
+    sigR: 0,
+    sigS: 0,
+    data: ""
+  };
+};
+
+const callState = () => {
+  return {
+    code: "",
+    bytes: "",
+    id: 0,
+    caller: "",
+    callData: "",
+    callValue: "",
+    stack: [],
+    memory: [],
+    pc: 0,
+    gas: 0,
+    memoryUsed: 0,
+    previousGas: 0,
+    static: false,
+    depth: 0,
+    halt: false,
+    address: ""
+  };
+};
+const subState = () => {
+  return {
+    selfDestruct: false,
+    log: "",
+    refund: 0
+  };
+};
+
+const txData = () => {
+  return {
+    gasprice: 0,
+    origin: ""
+  };
+};
+
+const blockInfo = () => {
+  return {
+    previousHash: 0,
+    ommersHash: 0,
+    coinbase: 0,
+    stateRoot: 0,
+    transactionsRoot: 0,
+    receiptsRoot: 0,
+    logsBloom: [],
+    difficulty: 0,
+    number: 0,
+    gasLimit: 0,
+    gasUsed: 0,
+    timestamp: 0,
+    extraData: [],
+    mixHash: 0,
+    blockNonce: 0,
+    ommerBlockHeaders: 0,
+    blockhash: ""
+  };
 };
 
 // var t = new BN("3200000000000000000");
@@ -59,10 +102,8 @@ const blockInfo = {
 // let d2 = t.toArrayLike(Buffer, "be", 8);
 // console.log(d1.add(d2));
 
-const exampleInput = "6001600201600401";
-
 const getOp = (call, pc = call.pc) => {
-  if (call.code[pc] > call.code.length) {
+  if (call.pc > call.code.length) {
     return "";
   }
   return parseInt(call.code[pc] + call.code[pc + 1], 16);
@@ -73,23 +114,28 @@ const addToStack = (stack, value) => {
   return stack.concat(value);
 };
 
-function step(callState) {
+function step(globalState) {
+  const callState = { ...globalState.callState };
+
   //lookup next opcode
   let opcode = getOp(callState);
   //STOP if
   if (callState.halt || opcode == "" || opcode == 0 || opcode == NaN) {
-    return callState;
+    return { ...globalState, callState };
   }
   // Check if there's enough gas
 
   //Execute
-  return step(executeStep(callState));
+  return step(executeStep(globalState));
 }
 
 //The execution of a single opcode. Returns a new callState
-const executeStep = callState => {
+const executeStep = globalState => {
+  const callState = { ...globalState.callState };
+
   let opcode = getOp(callState);
   //Maybe a switch statement
+  console.log(opcode);
 
   if (opcode >= 0x60 && opcode <= 0x7f) {
     // TODO cleanup this
@@ -97,9 +143,12 @@ const executeStep = callState => {
     let pc = callState.pc + (opcode - 0x5e) * 2;
 
     return {
-      ...callState,
-      pc,
-      stack: [...callState.stack, new BN(word)]
+      ...globalState,
+      callState: {
+        ...callState,
+        pc,
+        stack: [...callState.stack, new BN(word)]
+      }
     };
   }
 
@@ -161,6 +210,8 @@ const codes = op => {
       return stackOp1(NOT);
     case 0x1a:
       return stackOp2(BYTE);
+    case 0x30:
+      return stateLens("address");
     case 0x33:
       return stateLens("caller");
     default:
@@ -307,5 +358,13 @@ const NOT = a => a.notn(256);
 const BYTE = (a, b) =>
   new BN(a.gten(32) ? 0 : b.shrn((31 - a.toNumber()) * 8).andln(0xff));
 
-let input = { ...callState, stack: [new BN(0x01), new BN(0x02)] };
-console.log(step({ ...input, code: exampleInput }));
+//const exampleInput =
+("60606040523415600e57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550603580605b6000396000f3006060604052600080fd00a165627a7a7230582056b");
+const exampleInput = "60";
+let initCallState = callState();
+let input = {
+  ...globalState,
+  callState: { ...initCallState, code: exampleInput }
+};
+
+console.log(step(input));

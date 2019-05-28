@@ -1,6 +1,5 @@
 const BN = require("bn.js");
 //import codes from "./Opcodes.js";
-
 const uint256 = new BN(2).pow(new BN(256));
 
 //Naive Implementation. It's not very performant
@@ -31,7 +30,7 @@ const message = () => {
     txNonce: 0,
     txGasPrice: 0,
     txGasLimit: 0,
-    to: account,
+    to: account(),
     value: 0,
     sigV: 0,
     sigR: 0,
@@ -116,7 +115,6 @@ const addToStack = (stack, value) => {
 
 function step(globalState) {
   const callState = { ...globalState.callState };
-
   //lookup next opcode
   let opcode = getOp(callState);
   //STOP if
@@ -135,8 +133,6 @@ const executeStep = globalState => {
 
   let opcode = getOp(callState);
   //Maybe a switch statement
-  console.log(opcode);
-
   if (opcode >= 0x60 && opcode <= 0x7f) {
     // TODO cleanup this
     let word = callState.code.substr(callState.pc + 2, opcode - 0x5e);
@@ -161,7 +157,7 @@ const executeStep = globalState => {
       return { ...callState, pc: dest };
     }
   }
-  return codes(opcode)(callState);
+  return codes(opcode)(globalState);
 };
 
 const codes = op => {
@@ -211,17 +207,16 @@ const codes = op => {
     case 0x1a:
       return stackOp2(BYTE);
     case 0x30:
-      return stateLens("address");
+      return stateToStack(["message", "to", "address"]);
     case 0x33:
-      return stateLens("caller");
+      return stateToStack(["callState", "caller"]);
     default:
       return errorState();
   }
 };
 
-const errorState = () => callState => {
-  console.log("error");
-  return { ...callState, halt: true };
+const errorState = () => globalState => {
+  return { ...globalState, callState: { ...callState, halt: true } };
 };
 
 const dupOp = op => {
@@ -252,39 +247,55 @@ const memWrite = state => {
   stack.slice(0, offset).concat([], stack.slice(offset + len));
 };
 
-//Read `item` form callState and add it to the stack
-const stateLens = item => callState => {
+//Read `item` form globalState and add it to the stack
+const stateToStack = path => globalState => {
+  const item = path.reduce((acc, val, index) => {
+    return acc[val];
+  }, globalState);
+
   return {
-    ...callState,
-    stack: [...stack, callState[item]],
-    pc: callState.pc + 2
+    ...globalState,
+    callState: {
+      ...callState,
+      pc: globalState.callState.pc + 2,
+      stack: [...globalState.callState.stack, item]
+    }
   };
 };
 
-const stackOp1 = op => callState => {
-  const a = callState.stack.slice(0, 1);
+const stackOp1 = op => globalState => {
+  const a = globalState.callState.stack.slice(0, 1);
   return {
-    ...callState,
-    stack: [...callState.stack.slice(1), op(a)],
-    pc: callState.pc + 2
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: [...callState.stack.slice(1), op(a)],
+      pc: callState.pc + 2
+    }
   };
 };
 
-const stackOp2 = op => callState => {
-  const [a, b] = callState.stack.slice(0, 2);
+const stackOp2 = op => globalState => {
+  const [a, b] = globalState.callState.stack.slice(0, 2);
   return {
-    ...callState,
-    stack: [...callState.stack.slice(2), op(a, b)],
-    pc: callState.pc + 2
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: [...callState.stack.slice(2), op(a, b)],
+      pc: callState.pc + 2
+    }
   };
 };
 
-const stackOp3 = op => callState => {
-  const [a, b, c] = callState.stack.slice(0, 3);
+const stackOp3 = op => globalState => {
+  const [a, b, c] = globalState.callState.stack.slice(0, 3);
   return {
-    ...callState,
-    stack: [...callState.stack.slice(3), op(a, b, c)],
-    pc: callState.pc + 2
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: [...callState.stack.slice(3), op(a, b, c)],
+      pc: callState.pc + 2
+    }
   };
 };
 
@@ -359,12 +370,15 @@ const BYTE = (a, b) =>
   new BN(a.gten(32) ? 0 : b.shrn((31 - a.toNumber()) * 8).andln(0xff));
 
 //const exampleInput =
-("60606040523415600e57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550603580605b6000396000f3006060604052600080fd00a165627a7a7230582056b");
-const exampleInput = "60";
+//"60606040523415600e57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550603580605b6000396000f3006060604052600080fd00a165627a7a7230582056b";
+const exampleInput = "606060400133";
 let initCallState = callState();
+
 let input = {
-  ...globalState,
+  ...globalState(),
   callState: { ...initCallState, code: exampleInput }
 };
 
-console.log(step(input));
+console.log(stateToStack(["message", "to", "address"])(input));
+
+//console.log(step(input));

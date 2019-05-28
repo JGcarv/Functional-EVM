@@ -208,8 +208,22 @@ const codes = op => {
       return stackOp2(BYTE);
     case 0x30:
       return stateToStack(["message", "to", "address"]);
+    case 0x32:
+      return stateToStack(["txData", "origin"]);
     case 0x33:
       return stateToStack(["callState", "caller"]);
+    case 0x34:
+      return stateToStack(["message", "value"]);
+    case 0x41:
+      return stateToStack(["blockInfo", "coinbase"]);
+    case 0x42:
+      return stateToStack(["blockInfo", "timestamp"]);
+    case 0x43:
+      return stateToStack(["blockInfo", "number"]);
+    case 0x44:
+      return stateToStack(["blockInfo", "difficulty"]);
+    case 0x45:
+      return stateToStack(["blockInfo", "gasLimit"]);
     default:
       return errorState();
   }
@@ -249,8 +263,8 @@ const memWrite = state => {
 
 //Read `item` form globalState and add it to the stack
 const stateToStack = path => globalState => {
-  const item = path.reduce((acc, val, index) => {
-    return acc[val];
+  const item = path.reduce((state, key) => {
+    return state[key];
   }, globalState);
 
   return {

@@ -96,21 +96,12 @@ const blockInfo = () => {
   };
 };
 
-// var t = new BN("3200000000000000000");
-// let d1 = t.toArrayLike(Buffer, "be", 8);
-// let d2 = t.toArrayLike(Buffer, "be", 8);
-// console.log(d1.add(d2));
-
 const getOp = (call, pc = call.pc) => {
+  console.log(call.code.length);
   if (call.pc > call.code.length) {
     return "";
   }
   return parseInt(call.code[pc] + call.code[pc + 1], 16);
-};
-
-//The satck can be accept different values as long as opcodes deal with 256bit limitation
-const addToStack = (stack, value) => {
-  return stack.concat(value);
 };
 
 function step(globalState) {
@@ -224,6 +215,8 @@ const codes = op => {
       return stateToStack(["blockInfo", "difficulty"]);
     case 0x45:
       return stateToStack(["blockInfo", "gasLimit"]);
+    case 0x51:
+      return MLOAD();
     default:
       return errorState();
   }
@@ -246,19 +239,29 @@ const swapOp = op => {
   stack[0] = temp;
 };
 
-const memRead = state => {
-  let offset = state.stack[0];
-  let stack = stack.concat(state.memory.slice(offset, offset + 32));
-  return { ...state, satck };
+const MLOAD = () => globalState => {
+  const a = globalState.callState.stack.slice(0, 1);
+  const word = globalState.callState.memory.slice(a, a + 32);
+  console.log(globalState.callState.stack);
+
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack: [...globalState.callState.stack.slice(1), new BN(word)],
+      pc: globalState.callState.pc + 2
+    }
+  };
+};
+
+const toBuffer = value => {
+  return value.toArrayLike(Buffer, "be", 32);
 };
 
 //Not exactly how it's done, need so refactoring because MSTORE 8 appends 0xff bytes to reach 32
-const memWrite = state => {
-  let op = getOp(state);
-  let len = op == 0x52 ? 32 : 8;
-  let offset = state.stack[0];
-  let value = new BN(stack.pop(), len);
-  stack.slice(0, offset).concat([], stack.slice(offset + len));
+const MSTORE = length => globalState => {
+  const [offset, value] = globalState.callState.stack.slice(0, 2);
+  const word = toBuffer(new BN(word));
 };
 
 //Read `item` form globalState and add it to the stack
@@ -385,14 +388,15 @@ const BYTE = (a, b) =>
 
 //const exampleInput =
 //"60606040523415600e57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550603580605b6000396000f3006060604052600080fd00a165627a7a7230582056b";
-const exampleInput = "606060400133";
+const exampleInput = "60205100";
 let initCallState = callState();
-
+let buf1 = toBuffer(new BN("11"));
+let buf2 = toBuffer(new BN("22"));
+const Mem = Buffer.concat([buf1, buf2]);
 let input = {
   ...globalState(),
-  callState: { ...initCallState, code: exampleInput }
+  callState: { ...initCallState, code: exampleInput, memory: Mem }
 };
-
-console.log(stateToStack(["message", "to", "address"])(input));
+console.log(step(input));
 
 //console.log(step(input));

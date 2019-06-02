@@ -217,6 +217,9 @@ const codes = op => {
       return stateToStack(["blockInfo", "gasLimit"]);
     case 0x51:
       return MLOAD();
+    case 0x52:
+    case 0x53:
+      return MSTORE();
     default:
       return errorState();
   }
@@ -242,8 +245,6 @@ const swapOp = op => {
 const MLOAD = () => globalState => {
   const a = globalState.callState.stack.slice(0, 1);
   const word = globalState.callState.memory.slice(a, a + 32);
-  console.log(globalState.callState.stack);
-
   return {
     ...globalState,
     callState: {
@@ -255,13 +256,36 @@ const MLOAD = () => globalState => {
 };
 
 const toBuffer = value => {
-  return value.toArrayLike(Buffer, "be", 32);
+  return value.toArray("be", 32);
+};
+
+const setToMemory = (mem, offset, value) => {
+  return [
+    ...mem.slice(0, offset),
+    ...value,
+    ...mem.slice(offset + value.length)
+  ];
 };
 
 //Not exactly how it's done, need so refactoring because MSTORE 8 appends 0xff bytes to reach 32
-const MSTORE = length => globalState => {
+const MSTORE = () => globalState => {
   const [offset, value] = globalState.callState.stack.slice(0, 2);
-  const word = toBuffer(new BN(word));
+  const valueArray = toBuffer(value);
+  const mem = globalState.callState.memory;
+  const memory = [
+    ...mem.slice(0, offset),
+    ...valueArray,
+    ...mem.slice(offset + value.length)
+  ];
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack: [...globalState.callState.stack.slice(2)],
+      memory,
+      pc: globalState.callState.pc + 2
+    }
+  };
 };
 
 //Read `item` form globalState and add it to the stack
@@ -392,7 +416,8 @@ const exampleInput = "60205100";
 let initCallState = callState();
 let buf1 = toBuffer(new BN("11"));
 let buf2 = toBuffer(new BN("22"));
-const Mem = Buffer.concat([buf1, buf2]);
+let buf3 = toBuffer(new BN("33"));
+const Mem = buf1.concat(buf2);
 let input = {
   ...globalState(),
   callState: { ...initCallState, code: exampleInput, memory: Mem }

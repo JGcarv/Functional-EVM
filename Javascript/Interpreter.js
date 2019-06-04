@@ -10,7 +10,7 @@ const globalState = () => {
     message: message(),
     txData: txData(),
     blockInfo: blockInfo(),
-    accounts: {}
+    accounts: accounts()
   };
 };
 
@@ -30,7 +30,7 @@ const message = () => {
     txNonce: 0,
     txGasPrice: 0,
     txGasLimit: 0,
-    to: account(),
+    to: 0,
     value: 0,
     sigV: 0,
     sigR: 0,
@@ -95,6 +95,8 @@ const blockInfo = () => {
     blockhash: ""
   };
 };
+
+const main = globalState => {};
 
 const getOp = (call, pc = call.pc) => {
   console.log(call.code.length);
@@ -220,6 +222,10 @@ const codes = op => {
     case 0x52:
     case 0x53:
       return MSTORE();
+    case 0x54:
+      return SLOAD();
+    case 0x55:
+      return SSTORE();
     default:
       return errorState();
   }
@@ -255,19 +261,37 @@ const MLOAD = () => globalState => {
   };
 };
 
+const SLOAD = () => globalState => {
+  const key = globalState.callState.stack.slice(0, 1);
+  const value = getAccount().storage[new Buffer(key)];
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack: [...globalState.callState.stack.slice(1), new BN(value)],
+      pc: globalState.callState.pc + 2
+    }
+  };
+};
+
+const SSTORE = () => globalState => {
+  const [key, value] = globalState.callState.stack.slice(0, 2);
+  const account = getAccount();
+  account.storage[key] = value;
+  return {
+    ...putAccount(account),
+    callState: {
+      ...globalState.callState,
+      stack: [...globalState.callState.stack.slice(1)],
+      pc: globalState.callState.pc + 2
+    }
+  };
+};
+
 const toBuffer = value => {
   return value.toArray("be", 32);
 };
 
-const setToMemory = (mem, offset, value) => {
-  return [
-    ...mem.slice(0, offset),
-    ...value,
-    ...mem.slice(offset + value.length)
-  ];
-};
-
-//Not exactly how it's done, need so refactoring because MSTORE 8 appends 0xff bytes to reach 32
 const MSTORE = () => globalState => {
   const [offset, value] = globalState.callState.stack.slice(0, 2);
   const valueArray = toBuffer(value);
@@ -286,6 +310,16 @@ const MSTORE = () => globalState => {
       pc: globalState.callState.pc + 2
     }
   };
+};
+
+const getAccount = globalState => () => {
+  return globalState.accounts[globalState.message.to];
+};
+
+const putAccount = globalState => account => {
+  const newState = { ...globalState };
+  newState.accounts[globalState.address.to] = account;
+  return newState;
 };
 
 //Read `item` form globalState and add it to the stack

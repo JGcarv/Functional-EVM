@@ -1,5 +1,4 @@
 const BN = require("bn.js");
-//import codes from "./Opcodes.js";
 const uint256 = new BN(2).pow(new BN(256));
 
 //Naive Implementation. It's not very performant
@@ -10,7 +9,8 @@ const globalState = () => {
     message: message(),
     txData: txData(),
     blockInfo: blockInfo(),
-    accounts: accounts()
+    accounts: accounts(),
+    env: env()
   };
 };
 
@@ -21,6 +21,15 @@ const account = () => {
     code: "",
     storage: {},
     nonce: 0
+  };
+};
+
+const env = () => {
+  return {
+    address: 0,
+    contract: account(),
+    intiCode: "",
+    runtimeCode: ""
   };
 };
 
@@ -96,8 +105,6 @@ const blockInfo = () => {
   };
 };
 
-const main = globalState => {};
-
 const getOp = (call, pc = call.pc) => {
   console.log(call.code.length);
   if (call.pc > call.code.length) {
@@ -117,135 +124,200 @@ function step(globalState) {
   // Check if there's enough gas
 
   //Execute
-  return step(executeStep(globalState));
+  return step(codes(opcode)(globalState));
 }
 
-//The execution of a single opcode. Returns a new callState
-const executeStep = globalState => {
-  const callState = { ...globalState.callState };
-
-  let opcode = getOp(callState);
-  //Maybe a switch statement
-  if (opcode >= 0x60 && opcode <= 0x7f) {
-    // TODO cleanup this
-    let word = callState.code.substr(callState.pc + 2, opcode - 0x5e);
-    let pc = callState.pc + (opcode - 0x5e) * 2;
-
-    return {
-      ...globalState,
-      callState: {
-        ...callState,
-        pc,
-        stack: [...callState.stack, new BN(word)]
-      }
-    };
-  }
-
-  if (opcode == 0x56 || opcode == 0x57) {
-    let dest = getOP(callState, callState.stack.pop());
-    if (dest != 0x5b) {
-      return "invalid JUMP";
-    } else {
-      //TODO deal with conditional JUMP
-      return { ...callState, pc: dest };
-    }
-  }
-  return codes(opcode)(globalState);
-};
-
 const codes = op => {
-  switch (op) {
-    case 0x01:
-      return stackOp2(ADD);
-    case 0x02:
-      return stackOp2(MUL);
-    case 0x03:
-      return stackOp2(SUB);
-    case 0x04:
-      return stackOp2(DIV);
-    case 0x05:
-      return stackOp2(SDIV);
-    case 0x06:
-      return stackOp2(MOD);
-    case 0x07:
-      return stackOp2(SMOD);
-    case 0x08:
-      return stackOp3(ADDMOD);
-    case 0x09:
-      return stackOp3(MULMOD);
-    case 0x0a:
-      return stackOp2(EXP);
-    case 0x0b:
-      return stackOp2(SIGNEXTEND);
-    case 0x10:
-      return stackOp2(LT);
-    case 0x11:
-      return stackOp2(GT);
-    case 0x12:
-      return stackOp2(SLT);
-    case 0x13:
-      return stackOp2(SGT);
-    case 0x14:
-      return stackOp2(EQ);
-    case 0x15:
-      return stackOp1(ISZERO);
-    case 0x16:
-      return stackOp2(AND);
-    case 0x17:
-      return stackOp2(OR);
-    case 0x18:
-      return stackOp2(XOR);
-    case 0x19:
-      return stackOp1(NOT);
-    case 0x1a:
-      return stackOp2(BYTE);
-    case 0x30:
-      return stateToStack(["message", "to", "address"]);
-    case 0x32:
-      return stateToStack(["txData", "origin"]);
-    case 0x33:
-      return stateToStack(["callState", "caller"]);
-    case 0x34:
-      return stateToStack(["message", "value"]);
-    case 0x41:
-      return stateToStack(["blockInfo", "coinbase"]);
-    case 0x42:
-      return stateToStack(["blockInfo", "timestamp"]);
-    case 0x43:
-      return stateToStack(["blockInfo", "number"]);
-    case 0x44:
-      return stateToStack(["blockInfo", "difficulty"]);
-    case 0x45:
-      return stateToStack(["blockInfo", "gasLimit"]);
-    case 0x51:
-      return MLOAD();
-    case 0x52:
-    case 0x53:
-      return MSTORE();
-    case 0x54:
-      return SLOAD();
-    case 0x55:
-      return SSTORE();
-    default:
-      return errorState();
+  //PUSH opcodes
+  if (op >= 0x60 && op <= 0x7f) {
+    return PUSH(op);
   }
+
+  //SWAP opcodes
+  if (op >= 0x90 && op <= 0x9f) {
+    return SWAP(op);
+  }
+
+  //DUP opcodes
+  if (op >= 0x80 && op <= 0x8f) {
+    return DUP(op);
+  }
+
+  if (op)
+    switch (op) {
+      case 0x01:
+        return stackOp2(ADD);
+      case 0x02:
+        return stackOp2(MUL);
+      case 0x03:
+        return stackOp2(SUB);
+      case 0x04:
+        return stackOp2(DIV);
+      case 0x05:
+        return stackOp2(SDIV);
+      case 0x06:
+        return stackOp2(MOD);
+      case 0x07:
+        return stackOp2(SMOD);
+      case 0x08:
+        return stackOp3(ADDMOD);
+      case 0x09:
+        return stackOp3(MULMOD);
+      case 0x0a:
+        return stackOp2(EXP);
+      case 0x0b:
+        return stackOp2(SIGNEXTEND);
+      case 0x10:
+        return stackOp2(LT);
+      case 0x11:
+        return stackOp2(GT);
+      case 0x12:
+        return stackOp2(SLT);
+      case 0x13:
+        return stackOp2(SGT);
+      case 0x14:
+        return stackOp2(EQ);
+      case 0x15:
+        return stackOp1(ISZERO);
+      case 0x16:
+        return stackOp2(AND);
+      case 0x17:
+        return stackOp2(OR);
+      case 0x18:
+        return stackOp2(XOR);
+      case 0x19:
+        return stackOp1(NOT);
+      case 0x1a:
+        return stackOp2(BYTE);
+      case 0x30:
+        return stateToStack(["message", "to", "address"]);
+      case 0x32:
+        return stateToStack(["txData", "origin"]);
+      case 0x33:
+        return stateToStack(["callState", "caller"]);
+      case 0x34:
+        return stateToStack(["message", "value"]);
+      case 0x41:
+        return stateToStack(["blockInfo", "coinbase"]);
+      case 0x42:
+        return stateToStack(["blockInfo", "timestamp"]);
+      case 0x43:
+        return stateToStack(["blockInfo", "number"]);
+      case 0x44:
+        return stateToStack(["blockInfo", "difficulty"]);
+      case 0x45:
+        return stateToStack(["blockInfo", "gasLimit"]);
+      case 0x51:
+        return MLOAD();
+      case 0x52:
+      case 0x53:
+        return MSTORE();
+      case 0x54:
+        return SLOAD();
+      case 0x55:
+        return SSTORE();
+      case 0x56:
+        return JUMP();
+      case 0x57:
+        return JUMPI();
+      case 0x5b:
+        return JUMPDEST();
+      default:
+        return errorState();
+    }
 };
 
 const errorState = () => globalState => {
   return { ...globalState, callState: { ...callState, halt: true } };
 };
 
-const dupOp = op => {
-  //pos = op - 7f
-  //stack.concat(stack[stack.length - pos]);
+const PUSH = op => globalState => {
+  let word = globalState.callState.code.substr(callState.pc + 2, op - 0x5e);
+  let pc = globalState.callState.pc + (op - 0x5e) * 2;
+
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      pc,
+      stack: [...callState.stack, new BN(word)]
+    }
+  };
 };
 
-const swapOp = op => {
-  let pos = op - 0x8f;
-  let head = stack[0];
-  let temp = stack[stack.length - pos];
+const DUP = (op = globalState => {
+  const pos = op - 0x7f;
+  let stack = [...globalState.callState.stack];
+  stack.concat(stack[stack.length - pos]);
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack
+    }
+  };
+});
+
+const SWAP = op => globalState => {
+  const pos = op - 0x8f;
+  let stack = [...globalState.callState.stack];
+  const head = stack[0];
+  const temp = stack[stack.length - pos];
   stack[stack.length - pos] = head;
   stack[0] = temp;
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack
+    }
+  };
+};
+
+const JUMPI = () => globalState => {
+  const [dest, cond] = globalState.callState.stack.slice(0, 2);
+  const destOp = getOP(globalState.callState, dest.toNumber());
+
+  if (destOp != 0x5b) {
+    return errorState();
+  }
+
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: [...callState.stack.slice(2)],
+      pc: cond.isZero() ? callState.pc + 2 : dest + 1
+    }
+  };
+};
+
+const JUMPDEST = () => globalState => {
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      pc: globalState.callState.pc + 2; 
+    }
+  }
+}
+
+const JUMP = () => globalState => {
+  const [dest] = globalState.callState.stack.slice(0, 1);
+  const destOp = getOP(globalState.callState, dest.toNumber());
+
+  if (destOp != 0x5b) {
+    return errorState();
+  }
+
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: [...callState.stack.slice(2)],
+      pc: dest
+    }
+  };
 };
 
 const MLOAD = () => globalState => {
@@ -282,7 +354,7 @@ const SSTORE = () => globalState => {
     ...putAccount(account),
     callState: {
       ...globalState.callState,
-      stack: [...globalState.callState.stack.slice(1)],
+      stack: [...globalState.callState.stack.slice(2)],
       pc: globalState.callState.pc + 2
     }
   };
@@ -456,6 +528,11 @@ let input = {
   ...globalState(),
   callState: { ...initCallState, code: exampleInput, memory: Mem }
 };
+
+const createVM = () => {
+  return globalState();
+};
+
 console.log(step(input));
 
 //console.log(step(input));

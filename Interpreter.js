@@ -297,10 +297,10 @@ const JUMPDEST = () => globalState => {
     ...globalState,
     callState: {
       ...callState,
-      pc: globalState.callState.pc + 2; 
+      pc: globalState.callState.pc + 2
     }
-  }
-}
+  };
+};
 
 const JUMP = () => globalState => {
   const [dest] = globalState.callState.stack.slice(0, 1);

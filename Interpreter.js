@@ -106,7 +106,6 @@ const blockInfo = () => {
 };
 
 const getOp = (call, pc = call.pc) => {
-  console.log(call.code.length);
   if (call.pc > call.code.length) {
     return "";
   }
@@ -190,13 +189,13 @@ const codes = op => {
       case 0x1a:
         return stackOp2(BYTE);
       case 0x30:
-        return stateToStack(["message", "to", "address"]);
+        return stateToStack(["env", "address"]);
       case 0x32:
         return stateToStack(["txData", "origin"]);
       case 0x33:
         return stateToStack(["callState", "caller"]);
       case 0x34:
-        return stateToStack(["message", "value"]);
+        return stateToStack(["callState", "callValue"]);
       case 0x41:
         return stateToStack(["blockInfo", "coinbase"]);
       case 0x42:
@@ -384,8 +383,8 @@ const MSTORE = () => globalState => {
   };
 };
 
-const getAccount = globalState => () => {
-  return globalState.accounts[globalState.message.to];
+const getAccount = globalState => (address = globalState.env.address) => {
+  return globalState.accounts[address];
 };
 
 const putAccount = globalState => account => {
@@ -515,6 +514,50 @@ const XOR = (a, b) => a.xor(b);
 const NOT = a => a.notn(256);
 const BYTE = (a, b) =>
   new BN(a.gten(32) ? 0 : b.shrn((31 - a.toNumber()) * 8).andln(0xff));
+
+const CALL = () => globalState => {
+  [
+    gas,
+    addr,
+    value,
+    argsOffset,
+    argsLength,
+    retOffset,
+    retLength
+  ] = globalState.callState.stack.slice(0, 7);
+  //Set callState
+
+  let account = getAccount(addr); //Getting the wrong account
+  let callState = {
+    code: account.code, //load destination Address
+    bytes: "",
+    id: 0,
+    caller: globalState.env.address, //
+    callData: new Buffer(
+      globalState.callState.memory.slice(argsOffset, argsOffset + argsLength)
+    ), //load callData
+    callValue: value, //load Call value
+    depth: globalState.callState.depth + 1 //Increase depth
+  };
+
+  let env = {
+    address: addr,
+    contract: account,
+    intiCode: "",
+    runtimeCode: ""
+  };
+  state = {
+    ...globalState,
+    callState,
+    env
+  }
+  return step(state)
+  };
+
+  //Execute contract in new context
+  //step(newState)
+  //return newState to current call
+};
 
 //const exampleInput =
 //"60606040523415600e57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550603580605b6000396000f3006060604052600080fd00a165627a7a7230582056b";

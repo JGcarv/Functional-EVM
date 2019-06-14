@@ -29,7 +29,8 @@ const env = () => {
     address: 0,
     contract: account(),
     intiCode: "",
-    runtimeCode: ""
+    runtimeCode: "",
+    returnValue: 0
   };
 };
 
@@ -221,6 +222,10 @@ const codes = op => {
         return JUMPI();
       case 0x5b:
         return JUMPDEST();
+      case 0xf1:
+        return CALL();
+      case 0xf2:
+        return RETURNOP();
       default:
         return errorState();
     }
@@ -525,13 +530,11 @@ const CALL = () => globalState => {
     retOffset,
     retLength
   ] = globalState.callState.stack.slice(0, 7);
-  //Set callState
 
-  let account = getAccount(addr); //Getting the wrong account
+  let account = getAccount(addr);
   let callState = {
+    ...callState(),
     code: account.code, //load destination Address
-    bytes: "",
-    id: 0,
     caller: globalState.env.address, //
     callData: new Buffer(
       globalState.callState.memory.slice(argsOffset, argsOffset + argsLength)
@@ -541,22 +544,41 @@ const CALL = () => globalState => {
   };
 
   let env = {
+    ...env(),
     address: addr,
-    contract: account,
-    intiCode: "",
-    runtimeCode: ""
+    contract: account
   };
   state = {
     ...globalState,
     callState,
     env
-  }
-  return step(state)
   };
+  let ret = step(state);
+  const stack = [...globalState.callState.stack.slice(7)];
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: stack.concat(ret.callState.halt, new BN(ret.env.returnValue)),
+      pc: globalState.callState.pc + 2
+    }
+  };
+};
 
-  //Execute contract in new context
-  //step(newState)
-  //return newState to current call
+const RETURNOP = () => globalState => {
+  [offset, length] = globalState.callState.stack.slice(0, 2);
+  word = globalState.callState.memory.slice(offset, offseta + length);
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: globalState.callState.stack.slice(2)
+    },
+    env: {
+      ...globalState.callState.evn,
+      returnValue: word
+    }
+  };
 };
 
 //const exampleInput =

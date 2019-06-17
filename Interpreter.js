@@ -30,7 +30,7 @@ const env = () => {
     contract: account(),
     intiCode: "",
     runtimeCode: "",
-    returnValue: 0
+    returnValue: new BN(0)
   };
 };
 
@@ -197,6 +197,14 @@ const codes = op => {
         return stateToStack(["callState", "caller"]);
       case 0x34:
         return stateToStack(["callState", "callValue"]);
+      case 0x35:
+        return CALLDATALOAD();
+      case 0x36:
+        return CALLDATASIZE();
+      case 0x37:
+        return CALLDATACOPY();
+      case 0x38:
+        return CODESIZE();
       case 0x41:
         return stateToStack(["blockInfo", "coinbase"]);
       case 0x42:
@@ -224,7 +232,7 @@ const codes = op => {
         return JUMPDEST();
       case 0xf1:
         return CALL();
-      case 0xf2:
+      case 0xf3:
         return RETURNOP();
       default:
         return errorState();
@@ -332,6 +340,72 @@ const MLOAD = () => globalState => {
     callState: {
       ...globalState.callState,
       stack: [...globalState.callState.stack.slice(1), new BN(word)],
+      pc: globalState.callState.pc + 2
+    }
+  };
+};
+
+const CALLDATASIZE = () => globalState => {
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack: [
+        ...globalState.callState.stack,
+        new BN(globalState.callState.callData.length)
+      ],
+      pc: globalState.callState.pc + 2
+    }
+  };
+};
+
+const CALLDATALOAD = () => globalState => {
+  const a = globalState.callState.stack.slice(0, 1);
+  const word = globalState.callState.callData.slice(a, a + 32);
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack: [...globalState.callState.stack.slice(1), new BN(word)],
+      pc: globalState.callState.pc + 2
+    }
+  };
+};
+
+const CODESIZE = () => globalState => {
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack: [
+        ...globalState.callState.stack,
+        new BN(globalState.env.contract.code.length)
+      ],
+      pc: globalState.callState.pc + 2
+    }
+  };
+};
+
+const CALLDATACOPY = () => globalState => {
+  const [memOffset, dataOffset, length] = globalState.callState.stack.slice(
+    0,
+    3
+  );
+  const word = globalState.callState.callData.slice(
+    dataOffset,
+    dataOffset + length
+  );
+  const memory = [
+    ...mem.slice(0, memOffset),
+    ...word,
+    ...mem.slice(memOffset + length)
+  ];
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack: [...globalState.callState.stack.slice(3)],
+      memory,
       pc: globalState.callState.pc + 2
     }
   };
@@ -555,13 +629,30 @@ const CALL = () => globalState => {
   };
   let ret = step(state);
   const stack = [...globalState.callState.stack.slice(7)];
+  const mem = globalState.callState.memory;
+  const memory = [
+    ...mem.slice(0, retOffset),
+    ...ret.env.returnValue,
+    ...mem.slice(retOffset + retLength)
+  ];
+
+  const accounts = ret.callState.halt
+    ? { ...globalState.accounts }
+    : { ...ret.accounts };
+
   return {
     ...globalState,
     callState: {
       ...callState,
-      stack: stack.concat(ret.callState.halt, new BN(ret.env.returnValue)),
-      pc: globalState.callState.pc + 2
-    }
+      stack: stack.concat(new BN(ret.callState.halt ? 0 : 1)),
+      pc: globalState.callState.pc + 2,
+      memory
+    },
+    env: {
+      ...globalState.env,
+      returnValue: ret.env.returnValue
+    },
+    accounts
   };
 };
 

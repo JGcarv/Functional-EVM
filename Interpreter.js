@@ -1,7 +1,12 @@
 const BN = require("bn.js");
 const uint256 = new BN(2).pow(new BN(256));
 
-//Naive Implementation. It's not very performant
+/**
+
+  DATA STRUCTURES
+
+**/
+
 const globalState = () => {
   return {
     callState: callState(),
@@ -106,27 +111,29 @@ const blockInfo = () => {
   };
 };
 
-const getOp = (call, pc = call.pc) => {
-  if (call.pc > call.code.length) {
-    return "";
-  }
-  return parseInt(call.code[pc] + call.code[pc + 1], 16);
-};
+/**
 
-function step(globalState) {
+  MAIN EXECUTION
+
+**/
+
+// Takes the globalState as a main parameter executes until it reaches the end of the code or if finds a halting error.
+function execute(globalState) {
   const callState = { ...globalState.callState };
-  //lookup next opcode
   let opcode = getOp(callState);
-  //STOP if
   if (callState.halt || opcode == "" || opcode == 0 || opcode == NaN) {
     return { ...globalState, callState };
   }
-  // Check if there's enough gas
-
-  //Execute
-  return step(codes(opcode)(globalState));
+  return execute(codes(opcode)(globalState));
 }
 
+/**
+
+  OPCODE HANDLING
+
+**/
+
+// Takes an `op` parameter and returns a curried function, which takes globalState as parameter and executes the given opcode.
 const codes = op => {
   //PUSH opcodes
   if (op >= 0x60 && op <= 0x7f) {
@@ -239,10 +246,7 @@ const codes = op => {
     }
 };
 
-const errorState = () => globalState => {
-  return { ...globalState, callState: { ...callState, halt: true } };
-};
-
+//Generic PUSH function. It takes globalState and returns a new globalState with the program counter adjusted.
 const PUSH = op => globalState => {
   let word = globalState.callState.code.substr(callState.pc + 2, op - 0x5e);
   let pc = globalState.callState.pc + (op - 0x5e) * 2;
@@ -257,6 +261,7 @@ const PUSH = op => globalState => {
   };
 };
 
+//Generic DUP. Takes the opcode number and duplicates the correct stack position
 const DUP = (op = globalState => {
   const pos = op - 0x7f;
   let stack = [...globalState.callState.stack];
@@ -270,6 +275,7 @@ const DUP = (op = globalState => {
   };
 });
 
+//Generic SWAP. Takes the opcode number and swap the correct stack position
 const SWAP = op => globalState => {
   const pos = op - 0x8f;
   let stack = [...globalState.callState.stack];
@@ -282,6 +288,24 @@ const SWAP = op => globalState => {
     callState: {
       ...globalState.callState,
       stack
+    }
+  };
+};
+
+const JUMP = () => globalState => {
+  const [dest] = globalState.callState.stack.slice(0, 1);
+  const destOp = getOP(globalState.callState, dest.toNumber());
+
+  if (destOp != 0x5b) {
+    return errorState();
+  }
+
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: [...callState.stack.slice(2)],
+      pc: dest
     }
   };
 };
@@ -314,27 +338,9 @@ const JUMPDEST = () => globalState => {
   };
 };
 
-const JUMP = () => globalState => {
-  const [dest] = globalState.callState.stack.slice(0, 1);
-  const destOp = getOP(globalState.callState, dest.toNumber());
-
-  if (destOp != 0x5b) {
-    return errorState();
-  }
-
-  return {
-    ...globalState,
-    callState: {
-      ...callState,
-      stack: [...callState.stack.slice(2)],
-      pc: dest
-    }
-  };
-};
-
-const MLOAD = () => globalState => {
+const CALLDATALOAD = () => globalState => {
   const a = globalState.callState.stack.slice(0, 1);
-  const word = globalState.callState.memory.slice(a, a + 32);
+  const word = globalState.callState.callData.slice(a, a + 32);
   return {
     ...globalState,
     callState: {
@@ -353,33 +359,6 @@ const CALLDATASIZE = () => globalState => {
       stack: [
         ...globalState.callState.stack,
         new BN(globalState.callState.callData.length)
-      ],
-      pc: globalState.callState.pc + 2
-    }
-  };
-};
-
-const CALLDATALOAD = () => globalState => {
-  const a = globalState.callState.stack.slice(0, 1);
-  const word = globalState.callState.callData.slice(a, a + 32);
-  return {
-    ...globalState,
-    callState: {
-      ...globalState.callState,
-      stack: [...globalState.callState.stack.slice(1), new BN(word)],
-      pc: globalState.callState.pc + 2
-    }
-  };
-};
-
-const CODESIZE = () => globalState => {
-  return {
-    ...globalState,
-    callState: {
-      ...globalState.callState,
-      stack: [
-        ...globalState.callState.stack,
-        new BN(globalState.env.contract.code.length)
       ],
       pc: globalState.callState.pc + 2
     }
@@ -406,6 +385,20 @@ const CALLDATACOPY = () => globalState => {
       ...globalState.callState,
       stack: [...globalState.callState.stack.slice(3)],
       memory,
+      pc: globalState.callState.pc + 2
+    }
+  };
+};
+
+const CODESIZE = () => globalState => {
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack: [
+        ...globalState.callState.stack,
+        new BN(globalState.env.contract.code.length)
+      ],
       pc: globalState.callState.pc + 2
     }
   };
@@ -438,8 +431,17 @@ const SSTORE = () => globalState => {
   };
 };
 
-const toBuffer = value => {
-  return value.toArray("be", 32);
+const MLOAD = () => globalState => {
+  const a = globalState.callState.stack.slice(0, 1);
+  const word = globalState.callState.memory.slice(a, a + 32);
+  return {
+    ...globalState,
+    callState: {
+      ...globalState.callState,
+      stack: [...globalState.callState.stack.slice(1), new BN(word)],
+      pc: globalState.callState.pc + 2
+    }
+  };
 };
 
 const MSTORE = () => globalState => {
@@ -462,64 +464,80 @@ const MSTORE = () => globalState => {
   };
 };
 
-const getAccount = globalState => (address = globalState.env.address) => {
-  return globalState.accounts[address];
-};
+const CALL = () => globalState => {
+  [
+    gas,
+    addr,
+    value,
+    argsOffset,
+    argsLength,
+    retOffset,
+    retLength
+  ] = globalState.callState.stack.slice(0, 7);
 
-const putAccount = globalState => account => {
-  const newState = { ...globalState };
-  newState.accounts[globalState.address.to] = account;
-  return newState;
-};
+  let account = getAccount(addr);
+  let callState = {
+    ...callState(),
+    code: account.code, //load destination Address
+    caller: globalState.env.address, //
+    callData: new Buffer(
+      globalState.callState.memory.slice(argsOffset, argsOffset + argsLength)
+    ), //load callData
+    callValue: value, //load Call value
+    depth: globalState.callState.depth + 1 //Increase depth
+  };
 
-//Read `item` form globalState and add it to the stack
-const stateToStack = path => globalState => {
-  const item = path.reduce((state, key) => {
-    return state[key];
-  }, globalState);
+  let env = {
+    ...env(),
+    address: addr,
+    contract: account
+  };
+  state = {
+    ...globalState,
+    callState,
+    env
+  };
+  let ret = execute(state);
+  const stack = [...globalState.callState.stack.slice(7)];
+  const mem = globalState.callState.memory;
+  const memory = [
+    ...mem.slice(0, retOffset),
+    ...ret.env.returnValue,
+    ...mem.slice(retOffset + retLength)
+  ];
+
+  const accounts = ret.callState.halt
+    ? { ...globalState.accounts }
+    : { ...ret.accounts };
 
   return {
     ...globalState,
     callState: {
       ...callState,
+      stack: stack.concat(new BN(ret.callState.halt ? 0 : 1)),
       pc: globalState.callState.pc + 2,
-      stack: [...globalState.callState.stack, item]
-    }
+      memory
+    },
+    env: {
+      ...globalState.env,
+      returnValue: ret.env.returnValue
+    },
+    accounts
   };
 };
 
-const stackOp1 = op => globalState => {
-  const a = globalState.callState.stack.slice(0, 1);
+const RETURNOP = () => globalState => {
+  [offset, length] = globalState.callState.stack.slice(0, 2);
+  word = globalState.callState.memory.slice(offset, offseta + length);
   return {
     ...globalState,
     callState: {
       ...callState,
-      stack: [...callState.stack.slice(1), op(a)],
-      pc: callState.pc + 2
-    }
-  };
-};
-
-const stackOp2 = op => globalState => {
-  const [a, b] = globalState.callState.stack.slice(0, 2);
-  return {
-    ...globalState,
-    callState: {
-      ...callState,
-      stack: [...callState.stack.slice(2), op(a, b)],
-      pc: callState.pc + 2
-    }
-  };
-};
-
-const stackOp3 = op => globalState => {
-  const [a, b, c] = globalState.callState.stack.slice(0, 3);
-  return {
-    ...globalState,
-    callState: {
-      ...callState,
-      stack: [...callState.stack.slice(3), op(a, b, c)],
-      pc: callState.pc + 2
+      stack: globalState.callState.stack.slice(2)
+    },
+    env: {
+      ...globalState.callState.evn,
+      returnValue: word
     }
   };
 };
@@ -594,101 +612,86 @@ const NOT = a => a.notn(256);
 const BYTE = (a, b) =>
   new BN(a.gten(32) ? 0 : b.shrn((31 - a.toNumber()) * 8).andln(0xff));
 
-const CALL = () => globalState => {
-  [
-    gas,
-    addr,
-    value,
-    argsOffset,
-    argsLength,
-    retOffset,
-    retLength
-  ] = globalState.callState.stack.slice(0, 7);
+/**
 
-  let account = getAccount(addr);
-  let callState = {
-    ...callState(),
-    code: account.code, //load destination Address
-    caller: globalState.env.address, //
-    callData: new Buffer(
-      globalState.callState.memory.slice(argsOffset, argsOffset + argsLength)
-    ), //load callData
-    callValue: value, //load Call value
-    depth: globalState.callState.depth + 1 //Increase depth
-  };
+  HELPERS
 
-  let env = {
-    ...env(),
-    address: addr,
-    contract: account
-  };
-  state = {
-    ...globalState,
-    callState,
-    env
-  };
-  let ret = step(state);
-  const stack = [...globalState.callState.stack.slice(7)];
-  const mem = globalState.callState.memory;
-  const memory = [
-    ...mem.slice(0, retOffset),
-    ...ret.env.returnValue,
-    ...mem.slice(retOffset + retLength)
-  ];
+**/
 
-  const accounts = ret.callState.halt
-    ? { ...globalState.accounts }
-    : { ...ret.accounts };
-
-  return {
-    ...globalState,
-    callState: {
-      ...callState,
-      stack: stack.concat(new BN(ret.callState.halt ? 0 : 1)),
-      pc: globalState.callState.pc + 2,
-      memory
-    },
-    env: {
-      ...globalState.env,
-      returnValue: ret.env.returnValue
-    },
-    accounts
-  };
+const getOp = (call, pc = call.pc) => {
+  if (call.pc > call.code.length) {
+    return "";
+  }
+  return parseInt(call.code[pc] + call.code[pc + 1], 16);
 };
 
-const RETURNOP = () => globalState => {
-  [offset, length] = globalState.callState.stack.slice(0, 2);
-  word = globalState.callState.memory.slice(offset, offseta + length);
+//Read `item` form globalState and add it to the stack
+const stateToStack = path => globalState => {
+  const item = path.reduce((state, key) => {
+    return state[key];
+  }, globalState);
+
   return {
     ...globalState,
     callState: {
       ...callState,
-      stack: globalState.callState.stack.slice(2)
-    },
-    env: {
-      ...globalState.callState.evn,
-      returnValue: word
+      pc: globalState.callState.pc + 2,
+      stack: [...globalState.callState.stack, item]
     }
   };
 };
 
-//const exampleInput =
-//"60606040523415600e57600080fd5b336000806101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff160217905550603580605b6000396000f3006060604052600080fd00a165627a7a7230582056b";
-const exampleInput = "60205100";
-let initCallState = callState();
-let buf1 = toBuffer(new BN("11"));
-let buf2 = toBuffer(new BN("22"));
-let buf3 = toBuffer(new BN("33"));
-const Mem = buf1.concat(buf2);
-let input = {
-  ...globalState(),
-  callState: { ...initCallState, code: exampleInput, memory: Mem }
+const stackOp1 = op => globalState => {
+  const a = globalState.callState.stack.slice(0, 1);
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: [...callState.stack.slice(1), op(a)],
+      pc: callState.pc + 2
+    }
+  };
 };
 
-const createVM = () => {
-  return globalState();
+const stackOp2 = op => globalState => {
+  const [a, b] = globalState.callState.stack.slice(0, 2);
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: [...callState.stack.slice(2), op(a, b)],
+      pc: callState.pc + 2
+    }
+  };
 };
 
-console.log(step(input));
+const stackOp3 = op => globalState => {
+  const [a, b, c] = globalState.callState.stack.slice(0, 3);
+  return {
+    ...globalState,
+    callState: {
+      ...callState,
+      stack: [...callState.stack.slice(3), op(a, b, c)],
+      pc: callState.pc + 2
+    }
+  };
+};
 
-//console.log(step(input));
+// A helper function to raise an exception state
+const errorState = () => globalState => {
+  return { ...globalState, callState: { ...callState, halt: true } };
+};
+
+const toBuffer = value => {
+  return value.toArray("be", 32);
+};
+
+const getAccount = globalState => (address = globalState.env.address) => {
+  return globalState.accounts[address];
+};
+
+const putAccount = globalState => account => {
+  const newState = { ...globalState };
+  newState.accounts[globalState.address.to] = account;
+  return newState;
+};

@@ -5,4 +5,3 @@ A simple implementation of the Ethereum Virtual Machine in a functional style wi
 This project is merely for learning purposes and it's still a work in progress. 
 
 
-
